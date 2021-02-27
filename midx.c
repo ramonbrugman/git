@@ -5,7 +5,7 @@
 #include "lockfile.h"
 #include "packfile.h"
 #include "object-store.h"
-#include "sha1-lookup.h"
+#include "hash-lookup.h"
 #include "midx.h"
 #include "progress.h"
 #include "trace2.h"
@@ -298,7 +298,7 @@ static int nth_midxed_pack_entry(struct repository *r,
 	pack_int_id = nth_midxed_pack_int_id(m, pos);
 
 	if (prepare_midx_pack(r, m, pack_int_id))
-		die(_("error preparing packfile from multi-pack-index"));
+		return 0;
 	p = m->packs[pack_int_id];
 
 	/*
@@ -918,7 +918,7 @@ static int write_midx_internal(const char *object_dir, struct multi_pack_index *
 					(pack_name_concat_len % MIDX_CHUNK_ALIGNMENT);
 
 	hold_lock_file_for_update(&lk, midx_name, LOCK_DIE_ON_ERROR);
-	f = hashfd(lk.tempfile->fd, lk.tempfile->filename.buf);
+	f = hashfd(get_lock_file_fd(&lk), get_lock_file_path(&lk));
 	FREE_AND_NULL(midx_name);
 
 	if (packs.m)

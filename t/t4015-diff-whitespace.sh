@@ -7,7 +7,7 @@ test_description='Test special whitespace in diff engine.
 
 '
 . ./test-lib.sh
-. "$TEST_DIRECTORY"/diff-lib.sh
+. "$TEST_DIRECTORY"/lib-diff.sh
 
 test_expect_success "Ray Lehtiniemi's example" '
 	cat <<-\EOF >x &&
@@ -565,6 +565,30 @@ test_expect_success '--check and --exit-code are not exclusive' '
 
 test_expect_success '--check and --quiet are not exclusive' '
 	git diff --check --quiet
+'
+
+test_expect_success '-w and --exit-code interact sensibly' '
+	test_when_finished "git checkout x" &&
+	{
+		test_seq 15 &&
+		echo " 16"
+	} >x &&
+	test_must_fail git diff --exit-code &&
+	git diff -w >actual &&
+	test_must_be_empty actual &&
+	git diff -w --exit-code
+'
+
+test_expect_success '-I and --exit-code interact sensibly' '
+	test_when_finished "git checkout x" &&
+	{
+		test_seq 15 &&
+		echo " 16"
+	} >x &&
+	test_must_fail git diff --exit-code &&
+	git diff -I. >actual &&
+	test_must_be_empty actual &&
+	git diff -I. --exit-code
 '
 
 test_expect_success 'check staged with no whitespace errors' '

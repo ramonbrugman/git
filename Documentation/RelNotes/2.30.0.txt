@@ -78,6 +78,31 @@ UI, Workflows & Features
  * The command line completion script (in contrib/) learned to expand
    commands that are alias of alias.
 
+ * "git update-ref --stdin" learns to take multiple transactions in a
+   single session.
+
+ * Various subcommands of "git config" that take value_regex
+   learned the "--literal-value" option to take the value_regex option
+   as a literal string.
+
+ * The transport layer was taught to optionally exchange the session
+   ID assigned by the trace2 subsystem during fetch/push transactions.
+
+ * "git imap-send" used to ignore configuration variables like
+   core.askpass; this has been corrected.
+
+ * "git $cmd $args", when $cmd is not a recognised subcommand, by
+   default tries to see if $cmd is a typo of an existing subcommand
+   and optionally executes the corrected command if there is only one
+   possibility, depending on the setting of help.autocorrect; the
+   users can now disable the whole thing, including the cycles spent
+   to find a likely typo, by setting the configuration variable to
+   'never'.
+
+ * "@" sometimes worked (e.g. "git push origin @:there") as a part of
+   a refspec element, but "git push origin @" did not work, which has
+   been corrected.
+
 
 Performance, Internal Implementation, Development Support etc.
 
@@ -95,11 +120,11 @@ Performance, Internal Implementation, Development Support etc.
    test pieces to run.
 
  * Adjust tests so that they won't scream when the default initial
-   branch name is changed to 'main'.
+   branch name is different from 'master'.
 
  * Rewriting "git bisect" in C continues.
 
- * More preliminary tests have been added to document desired outcome
+ * More preliminary tests have been added to document desired outcomes
    of various "directory rename" situations.
 
  * Micro clean-up of a couple of test scripts.
@@ -110,9 +135,6 @@ Performance, Internal Implementation, Development Support etc.
 
  * The code to detect premature EOF in the sideband demultiplexer has
    been cleaned up.
-
- * Test scripts are being prepared to transition of the default branch
-   name to 'main'.
 
  * "git fetch --depth=<n>" over the stateless RPC / smart HTTP
    transport handled EOF from the client poorly at the server end.
@@ -137,6 +159,14 @@ Performance, Internal Implementation, Development Support etc.
    with some timeout to reduce the rate of the failure.
 
  * "git-parse-remote" shell script library outlived its usefulness.
+
+ * Like die() and error(), a call to warning() will also trigger a
+   trace2 event.
+
+ * Use of non-reentrant localtime() has been removed.
+
+ * Non-reentrant time-related library functions and ctime/asctime with
+   awkward calling interfaces are banned from the codebase.
 
 
 Fixes since v2.29
@@ -219,7 +249,7 @@ Fixes since v2.29
    (merge c779386182 jc/sequencer-stopped-sha-simplify later to maint).
 
  * The code to see if "git stash drop" can safely remove refs/stash
-   has been made more carerful.
+   has been made more careful.
    (merge 4f44c5659b rs/empty-reflog-check-fix later to maint).
 
  * "git log -L<range>:<path>" is documented to take no pathspec, but
@@ -266,7 +296,7 @@ Fixes since v2.29
    (merge 81c4c5cf2e jk/4gb-idx later to maint).
 
  * Since jgit does not yet work with SHA-256 repositories, mark the
-   tests that uses it not to run unless we are testing with ShA-1
+   tests that use it not to run unless we are testing with ShA-1
    repositories.
    (merge ea699b4adc sg/t5310-jgit-wants-sha1 later to maint).
 
@@ -294,6 +324,46 @@ Fixes since v2.29
    has been corrected.
    (merge 309a4028e7 jk/stop-pack-objects-when-fetch-is-killed later to maint).
 
+ * "git add -i" failed to honor custom colors configured to show
+   patches, which has been corrected.
+   (merge 96386faa03 js/add-i-color-fix later to maint).
+
+ * Processes that access packdata while the .idx file gets removed
+   (e.g. while repacking) did not fail or fall back gracefully as they
+   could.
+   (merge 506ec2fbda tb/idx-midx-race-fix later to maint).
+
+ * "git apply" adjusted the permission bits of working-tree files and
+   directories according to core.sharedRepository setting by mistake and
+   for a long time, which has been corrected.
+   (merge eb3c027e17 mt/do-not-use-scld-in-working-tree later to maint).
+
+ * "fetch-pack" could pass NULL pointer to unlink(2) when it sees an
+   invalid filename; the error checking has been tightened to make
+   this impossible.
+   (merge 6031af387e rs/fetch-pack-invalid-lockfile later to maint).
+
+ * "git maintenance run/start/stop" needed to be run in a repository
+   to hold the lockfile they use, but didn't make sure they are
+   actually in a repository, which has been corrected.
+
+ * The glossary described a branch as an "active" line of development,
+   which is misleading---a stale and non-moving branch is still a
+   branch.
+   (merge eef1ceabd8 so/glossary-branch-is-not-necessarily-active later to maint).
+
+ * Newer versions of xsltproc can assign IDs in HTML documents it
+   generates in a consistent manner.  Use the feature to help format
+   HTML version of the user manual reproducibly.
+   (merge 3569e11d69 ae/doc-reproducible-html later to maint).
+
+ * Tighten error checking in the codepath that responds to "git fetch".
+   (merge d43a21bdbb jk/check-config-parsing-error-in-upload-pack later to maint).
+
+ * "git pack-redundant" when there is only one packfile used to crash,
+   which has been corrected.
+   (merge 0696232390 jx/pack-redundant-on-single-pack later to maint).
+
  * Other code cleanup, docfix, build fix, etc.
    (merge 3e0a5dc9af cc/doc-filter-branch-typofix later to maint).
    (merge 32c83afc2c cw/ci-ghwf-check-ws-errors later to maint).
@@ -318,3 +388,14 @@ Fixes since v2.29
    (merge 793c1464d3 ab/gc-keep-base-option later to maint).
    (merge b86339b12b mt/worktree-error-message-fix later to maint).
    (merge e01ae2a4a7 js/pull-rebase-use-advise later to maint).
+   (merge e63d774242 sn/config-doc-typofix later to maint).
+   (merge 08e9df2395 jk/multi-line-indent-style-fix later to maint).
+   (merge e66590348a da/vs-build-iconv-fix later to maint).
+   (merge 7fe07275be js/cmake-extra-built-ins-fix later to maint).
+   (merge 633eebe142 jb/midx-doc-update later to maint).
+   (merge 5885367e8f jh/index-v2-doc-on-fsmn later to maint).
+   (merge 14639a4779 jc/compat-util-setitimer-fix later to maint).
+   (merge 56f56ac50b ab/unreachable-break later to maint).
+   (merge 731d578b4f rb/nonstop-config-mak-uname-update later to maint).
+   (merge f4698738f9 es/perf-export-fix later to maint).
+   (merge 773c694142 nk/refspecs-negative-fix later to maint).

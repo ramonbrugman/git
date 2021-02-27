@@ -127,7 +127,7 @@ struct bundle_transport_data {
 
 static struct ref *get_refs_from_bundle(struct transport *transport,
 					int for_push,
-					const struct strvec *ref_prefixes)
+					struct transport_ls_refs_options *transport_options)
 {
 	struct bundle_transport_data *data = transport->data;
 	struct ref *result = NULL;
@@ -280,12 +280,14 @@ static void die_if_server_options(struct transport *transport)
  * remote refs.
  */
 static struct ref *handshake(struct transport *transport, int for_push,
-			     const struct strvec *ref_prefixes,
+			     struct transport_ls_refs_options *options,
 			     int must_list_refs)
 {
 	struct git_transport_data *data = transport->data;
 	struct ref *refs = NULL;
 	struct packet_reader reader;
+	int sid_len;
+	const char *server_sid;
 
 	connect_setup(transport, for_push);
 
@@ -297,9 +299,11 @@ static struct ref *handshake(struct transport *transport, int for_push,
 	data->version = discover_version(&reader);
 	switch (data->version) {
 	case protocol_v2:
+		if (server_feature_v2("session-id", &server_sid))
+			trace2_data_string("transfer", NULL, "server-sid", server_sid);
 		if (must_list_refs)
 			get_remote_refs(data->fd[1], &reader, &refs, for_push,
-					ref_prefixes,
+					options,
 					transport->server_options,
 					transport->stateless_rpc);
 		break;
@@ -310,6 +314,12 @@ static struct ref *handshake(struct transport *transport, int for_push,
 				 for_push ? REF_NORMAL : 0,
 				 &data->extra_have,
 				 &data->shallow);
+		server_sid = server_feature_value("session-id", &sid_len);
+		if (server_sid) {
+			char *sid = xstrndup(server_sid, sid_len);
+			trace2_data_string("transfer", NULL, "server-sid", sid);
+			free(sid);
+		}
 		break;
 	case protocol_unknown_version:
 		BUG("unknown protocol version");
@@ -324,9 +334,9 @@ static struct ref *handshake(struct transport *transport, int for_push,
 }
 
 static struct ref *get_refs_via_connect(struct transport *transport, int for_push,
-					const struct strvec *ref_prefixes)
+					struct transport_ls_refs_options *options)
 {
-	return handshake(transport, for_push, ref_prefixes, 1);
+	return handshake(transport, for_push, options, 1);
 }
 
 static int fetch_refs_via_pack(struct transport *transport,
@@ -1242,19 +1252,20 @@ int transport_push(struct repository *r,
 		int porcelain = flags & TRANSPORT_PUSH_PORCELAIN;
 		int pretend = flags & TRANSPORT_PUSH_DRY_RUN;
 		int push_ret, ret, err;
-		struct strvec ref_prefixes = STRVEC_INIT;
+		struct transport_ls_refs_options transport_options =
+			TRANSPORT_LS_REFS_OPTIONS_INIT;
 
 		if (check_push_refs(local_refs, rs) < 0)
 			return -1;
 
-		refspec_ref_prefixes(rs, &ref_prefixes);
+		refspec_ref_prefixes(rs, &transport_options.ref_prefixes);
 
 		trace2_region_enter("transport_push", "get_refs_list", r);
 		remote_refs = transport->vtable->get_refs_list(transport, 1,
-							       &ref_prefixes);
+							       &transport_options);
 		trace2_region_leave("transport_push", "get_refs_list", r);
 
-		strvec_clear(&ref_prefixes);
+		strvec_clear(&transport_options.ref_prefixes);
 
 		if (flags & TRANSPORT_PUSH_ALL)
 			match_flags |= MATCH_REFS_ALL;
@@ -1370,12 +1381,12 @@ int transport_push(struct repository *r,
 }
 
 const struct ref *transport_get_remote_refs(struct transport *transport,
-					    const struct strvec *ref_prefixes)
+					    struct transport_ls_refs_options *transport_options)
 {
 	if (!transport->got_remote_refs) {
 		transport->remote_refs =
 			transport->vtable->get_refs_list(transport, 0,
-							 ref_prefixes);
+							 transport_options);
 		transport->got_remote_refs = 1;
 	}
 

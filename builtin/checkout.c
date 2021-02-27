@@ -480,9 +480,11 @@ static int checkout_paths(const struct checkout_opts *opts,
 		 * with the hex of the commit (whether it's in `...` form or
 		 * not) for the run_add_interactive() machinery to work
 		 * properly. However, there is special logic for the HEAD case
-		 * so we mustn't replace that.
+		 * so we mustn't replace that.  Also, when we were given a
+		 * tree-object, new_branch_info->commit would be NULL, but we
+		 * do not have to do any replacement, either.
 		 */
-		if (rev && strcmp(rev, "HEAD"))
+		if (rev && new_branch_info->commit && strcmp(rev, "HEAD"))
 			rev = oid_to_hex_r(rev_oid, &new_branch_info->commit->object.oid);
 
 		if (opts->checkout_index && opts->checkout_worktree)
@@ -818,9 +820,6 @@ static int merge_working_tree(const struct checkout_opts *opts,
 				return ret;
 		}
 	}
-
-	if (!active_cache_tree)
-		active_cache_tree = cache_tree();
 
 	if (!cache_tree_fully_valid(active_cache_tree))
 		cache_tree_update(&the_index, WRITE_TREE_SILENT | WRITE_TREE_REPAIR);

@@ -3948,10 +3948,8 @@ static int check_patch(struct apply_state *state, struct patch *patch)
 			break; /* happy */
 		case EXISTS_IN_INDEX:
 			return error(_("%s: already exists in index"), new_name);
-			break;
 		case EXISTS_IN_INDEX_AS_ITA:
 			return error(_("%s: does not match index"), new_name);
-			break;
 		case EXISTS_IN_WORKTREE:
 			return error(_("%s: already exists in working directory"),
 				     new_name);
@@ -4409,7 +4407,7 @@ static int create_one_file(struct apply_state *state,
 		return 0;
 
 	if (errno == ENOENT) {
-		if (safe_create_leading_directories(path))
+		if (safe_create_leading_directories_no_share(path))
 			return 0;
 		res = try_create_file(state, path, mode, buf, size);
 		if (res < 0)

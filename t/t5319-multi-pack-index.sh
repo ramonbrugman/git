@@ -138,7 +138,7 @@ test_expect_success 'write midx with one v2 pack' '
 
 compare_results_with_midx "one v2 pack"
 
-test_expect_success 'corrupt idx not opened' '
+test_expect_success 'corrupt idx reports errors' '
 	idx=$(test-tool read-midx $objdir | grep "\.idx\$") &&
 	mv $objdir/pack/$idx backup-$idx &&
 	test_when_finished "mv backup-\$idx \$objdir/pack/\$idx" &&
@@ -149,7 +149,7 @@ test_expect_success 'corrupt idx not opened' '
 	test_copy_bytes 1064 <backup-$idx >$objdir/pack/$idx &&
 
 	git -c core.multiPackIndex=true rev-list --objects --all 2>err &&
-	test_must_be_empty err
+	grep "index unavailable" err
 '
 
 test_expect_success 'add more objects' '
@@ -710,8 +710,9 @@ test_expect_success 'expire respects .keep files' '
 		PACKA=$(ls .git/objects/pack/a-pack*\.pack | sed s/\.pack\$//) &&
 		touch $PACKA.keep &&
 		git multi-pack-index expire &&
-		ls -S .git/objects/pack/a-pack* | grep $PACKA >a-pack-files &&
-		test_line_count = 3 a-pack-files &&
+		test_path_is_file $PACKA.idx &&
+		test_path_is_file $PACKA.keep &&
+		test_path_is_file $PACKA.pack &&
 		test-tool read-midx .git/objects | grep idx >midx-list &&
 		test_line_count = 2 midx-list
 	)
@@ -752,6 +753,32 @@ test_expect_success 'repack --batch-size=<large> repacks everything' '
 		git multi-pack-index expire &&
 		ls -al .git/objects/pack/*idx >idx-list &&
 		test_line_count = 1 idx-list
+	)
+'
+
+test_expect_success 'load reverse index when missing .idx, .pack' '
+	git init repo &&
+	test_when_finished "rm -fr repo" &&
+	(
+		cd repo &&
+
+		git config core.multiPackIndex true &&
+
+		test_commit base &&
+		git repack -ad &&
+		git multi-pack-index write &&
+
+		git rev-parse HEAD >tip &&
+		pack=$(ls .git/objects/pack/pack-*.pack) &&
+		idx=$(ls .git/objects/pack/pack-*.idx) &&
+
+		mv $idx $idx.bak &&
+		git cat-file --batch-check="%(objectsize:disk)" <tip &&
+
+		mv $idx.bak $idx &&
+
+		mv $pack $pack.bak &&
+		git cat-file --batch-check="%(objectsize:disk)" <tip
 	)
 '
 

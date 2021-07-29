@@ -451,6 +451,7 @@ static int buffer_gets(struct imap_buffer *b, char **s)
 	/* not reached */
 }
 
+__attribute__((format (printf, 1, 2)))
 static void imap_info(const char *msg, ...)
 {
 	va_list va;
@@ -463,6 +464,7 @@ static void imap_info(const char *msg, ...)
 	}
 }
 
+__attribute__((format (printf, 1, 2)))
 static void imap_warn(const char *msg, ...)
 {
 	va_list va;
@@ -504,6 +506,7 @@ static char *next_arg(char **s)
 	return ret;
 }
 
+__attribute__((format (printf, 3, 4)))
 static int nfsnprintf(char *buf, int blen, const char *fmt, ...)
 {
 	int ret;
@@ -963,9 +966,9 @@ static struct imap_store *imap_open_store(struct imap_server_conf *srvc, const c
 	char *arg, *rsp;
 	int s = -1, preauth;
 
-	ctx = xcalloc(1, sizeof(*ctx));
+	CALLOC_ARRAY(ctx, 1);
 
-	ctx->imap = imap = xcalloc(1, sizeof(*imap));
+	ctx->imap = CALLOC_ARRAY(imap, 1);
 	imap->buf.sock.fd[0] = imap->buf.sock.fd[1] = -1;
 	imap->in_progress_append = &imap->in_progress;
 
@@ -1264,18 +1267,6 @@ static void wrap_in_html(struct strbuf *msg)
 
 	strbuf_release(msg);
 	*msg = buf;
-}
-
-#define CHUNKSIZE 0x1000
-
-static int read_message(FILE *f, struct strbuf *all_msgs)
-{
-	do {
-		if (strbuf_fread(all_msgs, CHUNKSIZE, f) <= 0)
-			break;
-	} while (!feof(f));
-
-	return ferror(f) ? -1 : 0;
 }
 
 static int count_messages(struct strbuf *all_msgs)
@@ -1582,8 +1573,8 @@ int cmd_main(int argc, const char **argv)
 	}
 
 	/* read the messages */
-	if (read_message(stdin, &all_msgs)) {
-		fprintf(stderr, "error reading input\n");
+	if (strbuf_read(&all_msgs, 0, 0) < 0) {
+		error_errno(_("could not read from stdin"));
 		return 1;
 	}
 

@@ -329,7 +329,7 @@ static void write_head_info(void)
 	for_each_alternate_ref(show_one_alternate_ref, &seen);
 	oidset_clear(&seen);
 	if (!sent_capabilities)
-		show_ref("capabilities^{}", &null_oid);
+		show_ref("capabilities^{}", null_oid());
 
 	advertise_shallow_grafts(1);
 
@@ -358,7 +358,7 @@ static void proc_receive_ref_append(const char *prefix)
 	char *p;
 	int len;
 
-	ref_pattern = xcalloc(1, sizeof(struct proc_receive_ref));
+	CALLOC_ARRAY(ref_pattern, 1);
 	p = strchr(prefix, ':');
 	if (p) {
 		while (prefix < p) {
@@ -425,9 +425,6 @@ static int proc_receive_ref_matches(struct command *cmd)
 	return 0;
 }
 
-static void rp_error(const char *err, ...) __attribute__((format (printf, 1, 2)));
-static void rp_warning(const char *err, ...) __attribute__((format (printf, 1, 2)));
-
 static void report_message(const char *prefix, const char *err, va_list params)
 {
 	int sz;
@@ -445,6 +442,7 @@ static void report_message(const char *prefix, const char *err, va_list params)
 		xwrite(2, msg, sz);
 }
 
+__attribute__((format (printf, 1, 2)))
 static void rp_warning(const char *err, ...)
 {
 	va_list params;
@@ -453,6 +451,7 @@ static void rp_warning(const char *err, ...)
 	va_end(params);
 }
 
+__attribute__((format (printf, 1, 2)))
 static void rp_error(const char *err, ...)
 {
 	va_list params;
@@ -1024,7 +1023,7 @@ static int read_proc_receive_report(struct packet_reader *reader,
 			}
 			if (new_report) {
 				if (!hint->report) {
-					hint->report = xcalloc(1, sizeof(struct ref_push_report));
+					CALLOC_ARRAY(hint->report, 1);
 					report = hint->report;
 				} else {
 					report = hint->report;
@@ -2313,11 +2312,9 @@ static void prepare_shallow_update(struct shallow_info *si)
 	ALLOC_ARRAY(si->used_shallow, si->shallow->nr);
 	assign_shallow_commits_to_refs(si, si->used_shallow, NULL);
 
-	si->need_reachability_test =
-		xcalloc(si->shallow->nr, sizeof(*si->need_reachability_test));
-	si->reachable =
-		xcalloc(si->shallow->nr, sizeof(*si->reachable));
-	si->shallow_ref = xcalloc(si->ref->nr, sizeof(*si->shallow_ref));
+	CALLOC_ARRAY(si->need_reachability_test, si->shallow->nr);
+	CALLOC_ARRAY(si->reachable, si->shallow->nr);
+	CALLOC_ARRAY(si->shallow_ref, si->ref->nr);
 
 	for (i = 0; i < si->nr_ours; i++)
 		si->need_reachability_test[si->ours[i]] = 1;

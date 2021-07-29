@@ -117,6 +117,7 @@ static int write_in_file(const char *path, const char *mode, const char *format,
 	return fclose(fp);
 }
 
+__attribute__((format (printf, 2, 3)))
 static int write_to_file(const char *path, const char *format, ...)
 {
 	int res;
@@ -129,6 +130,7 @@ static int write_to_file(const char *path, const char *format, ...)
 	return res;
 }
 
+__attribute__((format (printf, 2, 3)))
 static int append_to_file(const char *path, const char *format, ...)
 {
 	int res;
@@ -874,12 +876,19 @@ static enum bisect_error bisect_state(struct bisect_terms *terms, const char **a
 	 */
 
 	for (; argc; argc--, argv++) {
+		struct commit *commit;
+
 		if (get_oid(*argv, &oid)){
 			error(_("Bad rev input: %s"), *argv);
 			oid_array_clear(&revs);
 			return BISECT_FAILED;
 		}
-		oid_array_append(&revs, &oid);
+
+		commit = lookup_commit_reference(the_repository, &oid);
+		if (!commit)
+			die(_("Bad rev input (not a commit): %s"), *argv);
+
+		oid_array_append(&revs, &commit->object.oid);
 	}
 
 	if (strbuf_read_file(&buf, git_path_bisect_expected_rev(), 0) < the_hash_algo->hexsz ||
@@ -1119,6 +1128,7 @@ int cmd_bisect__helper(int argc, const char **argv, const char *prefix)
 		break;
 	case BISECT_SKIP:
 		set_terms(&terms, "bad", "good");
+		get_terms(&terms);
 		res = bisect_skip(&terms, argv, argc);
 		break;
 	default:

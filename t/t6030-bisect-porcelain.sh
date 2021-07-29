@@ -922,6 +922,17 @@ test_expect_success 'bisect start takes options and revs in any order' '
 	test_cmp expected actual
 '
 
+# Bisect is started with --term-new and --term-old arguments,
+# then skip. The HEAD should be changed.
+test_expect_success 'bisect skip works with --term*' '
+	git bisect reset &&
+	git bisect start --term-new=fixed --term-old=unfixed HEAD $HASH1 &&
+	hash_skipped_from=$(git rev-parse --verify HEAD) &&
+	git bisect skip &&
+	hash_skipped_to=$(git rev-parse --verify HEAD) &&
+	test "$hash_skipped_from" != "$hash_skipped_to"
+'
+
 test_expect_success 'git bisect reset cleans bisection state properly' '
 	git bisect reset &&
 	git bisect start &&
@@ -937,6 +948,18 @@ test_expect_success 'git bisect reset cleans bisection state properly' '
 	test_path_is_missing ".git/head-name" &&
 	test_path_is_missing ".git/BISECT_HEAD" &&
 	test_path_is_missing ".git/BISECT_START"
+'
+
+test_expect_success 'bisect handles annotated tags' '
+	test_commit commit-one &&
+	git tag -m foo tag-one &&
+	test_commit commit-two &&
+	git tag -m foo tag-two &&
+	git bisect start &&
+	git bisect good tag-one &&
+	git bisect bad tag-two >output &&
+	bad=$(git rev-parse --verify tag-two^{commit}) &&
+	grep "$bad is the first bad commit" output
 '
 
 test_done

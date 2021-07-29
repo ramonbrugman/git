@@ -55,18 +55,29 @@
 	"\x6f\xe1\x41\xf7\x74\x91\x20\xa3\x03\x72" \
 	"\x18\x13"
 
-const struct object_id null_oid;
 static const struct object_id empty_tree_oid = {
-	EMPTY_TREE_SHA1_BIN_LITERAL
+	.hash = EMPTY_TREE_SHA1_BIN_LITERAL,
+	.algo = GIT_HASH_SHA1,
 };
 static const struct object_id empty_blob_oid = {
-	EMPTY_BLOB_SHA1_BIN_LITERAL
+	.hash = EMPTY_BLOB_SHA1_BIN_LITERAL,
+	.algo = GIT_HASH_SHA1,
+};
+static const struct object_id null_oid_sha1 = {
+	.hash = {0},
+	.algo = GIT_HASH_SHA1,
 };
 static const struct object_id empty_tree_oid_sha256 = {
-	EMPTY_TREE_SHA256_BIN_LITERAL
+	.hash = EMPTY_TREE_SHA256_BIN_LITERAL,
+	.algo = GIT_HASH_SHA256,
 };
 static const struct object_id empty_blob_oid_sha256 = {
-	EMPTY_BLOB_SHA256_BIN_LITERAL
+	.hash = EMPTY_BLOB_SHA256_BIN_LITERAL,
+	.algo = GIT_HASH_SHA256,
+};
+static const struct object_id null_oid_sha256 = {
+	.hash = {0},
+	.algo = GIT_HASH_SHA256,
 };
 
 static void git_hash_sha1_init(git_hash_ctx *ctx)
@@ -87,6 +98,13 @@ static void git_hash_sha1_update(git_hash_ctx *ctx, const void *data, size_t len
 static void git_hash_sha1_final(unsigned char *hash, git_hash_ctx *ctx)
 {
 	git_SHA1_Final(hash, &ctx->sha1);
+}
+
+static void git_hash_sha1_final_oid(struct object_id *oid, git_hash_ctx *ctx)
+{
+	git_SHA1_Final(oid->hash, &ctx->sha1);
+	memset(oid->hash + GIT_SHA1_RAWSZ, 0, GIT_MAX_RAWSZ - GIT_SHA1_RAWSZ);
+	oid->algo = GIT_HASH_SHA1;
 }
 
 
@@ -110,6 +128,17 @@ static void git_hash_sha256_final(unsigned char *hash, git_hash_ctx *ctx)
 	git_SHA256_Final(hash, &ctx->sha256);
 }
 
+static void git_hash_sha256_final_oid(struct object_id *oid, git_hash_ctx *ctx)
+{
+	git_SHA256_Final(oid->hash, &ctx->sha256);
+	/*
+	 * This currently does nothing, so the compiler should optimize it out,
+	 * but keep it in case we extend the hash size again.
+	 */
+	memset(oid->hash + GIT_SHA256_RAWSZ, 0, GIT_MAX_RAWSZ - GIT_SHA256_RAWSZ);
+	oid->algo = GIT_HASH_SHA256;
+}
+
 static void git_hash_unknown_init(git_hash_ctx *ctx)
 {
 	BUG("trying to init unknown hash");
@@ -130,6 +159,12 @@ static void git_hash_unknown_final(unsigned char *hash, git_hash_ctx *ctx)
 	BUG("trying to finalize unknown hash");
 }
 
+static void git_hash_unknown_final_oid(struct object_id *oid, git_hash_ctx *ctx)
+{
+	BUG("trying to finalize unknown hash");
+}
+
+
 const struct git_hash_algo hash_algos[GIT_HASH_NALGOS] = {
 	{
 		NULL,
@@ -141,6 +176,8 @@ const struct git_hash_algo hash_algos[GIT_HASH_NALGOS] = {
 		git_hash_unknown_clone,
 		git_hash_unknown_update,
 		git_hash_unknown_final,
+		git_hash_unknown_final_oid,
+		NULL,
 		NULL,
 		NULL,
 	},
@@ -155,8 +192,10 @@ const struct git_hash_algo hash_algos[GIT_HASH_NALGOS] = {
 		git_hash_sha1_clone,
 		git_hash_sha1_update,
 		git_hash_sha1_final,
+		git_hash_sha1_final_oid,
 		&empty_tree_oid,
 		&empty_blob_oid,
+		&null_oid_sha1,
 	},
 	{
 		"sha256",
@@ -169,10 +208,17 @@ const struct git_hash_algo hash_algos[GIT_HASH_NALGOS] = {
 		git_hash_sha256_clone,
 		git_hash_sha256_update,
 		git_hash_sha256_final,
+		git_hash_sha256_final_oid,
 		&empty_tree_oid_sha256,
 		&empty_blob_oid_sha256,
+		&null_oid_sha256,
 	}
 };
+
+const struct object_id *null_oid(void)
+{
+	return the_hash_algo->null_oid;
+}
 
 const char *empty_tree_oid_hex(void)
 {
@@ -471,9 +517,9 @@ const char *loose_object_path(struct repository *r, struct strbuf *buf,
  */
 static int alt_odb_usable(struct raw_object_store *o,
 			  struct strbuf *path,
-			  const char *normalized_objdir)
+			  const char *normalized_objdir, khiter_t *pos)
 {
-	struct object_directory *odb;
+	int r;
 
 	/* Detect cases where alternate disappeared */
 	if (!is_directory(path->buf)) {
@@ -487,14 +533,20 @@ static int alt_odb_usable(struct raw_object_store *o,
 	 * Prevent the common mistake of listing the same
 	 * thing twice, or object directory itself.
 	 */
-	for (odb = o->odb; odb; odb = odb->next) {
-		if (!fspathcmp(path->buf, odb->path))
-			return 0;
-	}
-	if (!fspathcmp(path->buf, normalized_objdir))
-		return 0;
+	if (!o->odb_by_path) {
+		khiter_t p;
 
-	return 1;
+		o->odb_by_path = kh_init_odb_path_map();
+		assert(!o->odb->next);
+		p = kh_put_odb_path_map(o->odb_by_path, o->odb->path, &r);
+		assert(r == 1); /* never used */
+		kh_value(o->odb_by_path, p) = o->odb;
+	}
+	if (fspatheq(path->buf, normalized_objdir))
+		return 0;
+	*pos = kh_put_odb_path_map(o->odb_by_path, path->buf, &r);
+	/* r: 0 = exists, 1 = never used, 2 = deleted */
+	return r == 0 ? 0 : 1;
 }
 
 /*
@@ -515,17 +567,18 @@ static int alt_odb_usable(struct raw_object_store *o,
 static void read_info_alternates(struct repository *r,
 				 const char *relative_base,
 				 int depth);
-static int link_alt_odb_entry(struct repository *r, const char *entry,
+static int link_alt_odb_entry(struct repository *r, const struct strbuf *entry,
 	const char *relative_base, int depth, const char *normalized_objdir)
 {
 	struct object_directory *ent;
 	struct strbuf pathbuf = STRBUF_INIT;
+	khiter_t pos;
 
-	if (!is_absolute_path(entry) && relative_base) {
+	if (!is_absolute_path(entry->buf) && relative_base) {
 		strbuf_realpath(&pathbuf, relative_base, 1);
 		strbuf_addch(&pathbuf, '/');
 	}
-	strbuf_addstr(&pathbuf, entry);
+	strbuf_addbuf(&pathbuf, entry);
 
 	if (strbuf_normalize_path(&pathbuf) < 0 && relative_base) {
 		error(_("unable to normalize alternate object path: %s"),
@@ -541,23 +594,25 @@ static int link_alt_odb_entry(struct repository *r, const char *entry,
 	while (pathbuf.len && pathbuf.buf[pathbuf.len - 1] == '/')
 		strbuf_setlen(&pathbuf, pathbuf.len - 1);
 
-	if (!alt_odb_usable(r->objects, &pathbuf, normalized_objdir)) {
+	if (!alt_odb_usable(r->objects, &pathbuf, normalized_objdir, &pos)) {
 		strbuf_release(&pathbuf);
 		return -1;
 	}
 
-	ent = xcalloc(1, sizeof(*ent));
-	ent->path = xstrdup(pathbuf.buf);
+	CALLOC_ARRAY(ent, 1);
+	/* pathbuf.buf is already in r->objects->odb_by_path */
+	ent->path = strbuf_detach(&pathbuf, NULL);
 
 	/* add the alternate entry */
 	*r->objects->odb_tail = ent;
 	r->objects->odb_tail = &(ent->next);
 	ent->next = NULL;
+	assert(r->objects->odb_by_path);
+	kh_value(r->objects->odb_by_path, pos) = ent;
 
 	/* recursively add alternates */
-	read_info_alternates(r, pathbuf.buf, depth + 1);
+	read_info_alternates(r, ent->path, depth + 1);
 
-	strbuf_release(&pathbuf);
 	return 0;
 }
 
@@ -614,7 +669,7 @@ static void link_alt_odb_entries(struct repository *r, const char *alt,
 		alt = parse_alt_odb_entry(alt, sep, &entry);
 		if (!entry.len)
 			continue;
-		link_alt_odb_entry(r, entry.buf,
+		link_alt_odb_entry(r, &entry,
 				   relative_base, depth, objdirbuf.buf);
 	}
 	strbuf_release(&entry);
@@ -977,12 +1032,26 @@ void *xmmap_gently(void *start, size_t length,
 	return ret;
 }
 
+const char *mmap_os_err(void)
+{
+	static const char blank[] = "";
+#if defined(__linux__)
+	if (errno == ENOMEM) {
+		/* this continues an existing error message: */
+		static const char enomem[] =
+", check sys.vm.max_map_count and/or RLIMIT_DATA";
+		return enomem;
+	}
+#endif /* OS-specific bits */
+	return blank;
+}
+
 void *xmmap(void *start, size_t length,
 	int prot, int flags, int fd, off_t offset)
 {
 	void *ret = xmmap_gently(start, length, prot, flags, fd, offset);
 	if (ret == MAP_FAILED)
-		die_errno(_("mmap failed"));
+		die_errno(_("mmap failed%s"), mmap_os_err());
 	return ret;
 }
 
@@ -1029,7 +1098,7 @@ int check_object_signature(struct repository *r, const struct object_id *oid,
 			break;
 		r->hash_algo->update_fn(&c, buf, readlen);
 	}
-	r->hash_algo->final_fn(real_oid.hash, &c);
+	r->hash_algo->final_oid_fn(&real_oid, &c);
 	close_istream(st);
 	return !oideq(oid, &real_oid) ? -1 : 0;
 }
@@ -1118,7 +1187,7 @@ static int quick_has_loose(struct repository *r,
 
 	prepare_alt_odb(r);
 	for (odb = r->objects->odb; odb; odb = odb->next) {
-		if (oid_array_lookup(odb_loose_cache(odb, oid), oid) >= 0)
+		if (oidtree_contains(odb_loose_cache(odb, oid), oid))
 			return 1;
 	}
 	return 0;
@@ -1524,15 +1593,12 @@ static int do_oid_object_info_extended(struct repository *r,
 		}
 
 		/* Check if it is a missing object */
-		if (fetch_if_missing && has_promisor_remote() &&
-		    !already_retried && r == the_repository &&
+		if (fetch_if_missing && repo_has_promisor_remote(r) &&
+		    !already_retried &&
 		    !(flags & OBJECT_INFO_SKIP_FETCH_OBJECT)) {
 			/*
 			 * TODO Investigate checking promisor_remote_get_direct()
 			 * TODO return value and stopping on error here.
-			 * TODO Pass a repository struct through
-			 * promisor_remote_get_direct(), such that arbitrary
-			 * repositories work.
 			 */
 			promisor_remote_get_direct(r, real, 1);
 			already_retried = 1;
@@ -1730,7 +1796,7 @@ static void write_object_file_prepare(const struct git_hash_algo *algo,
 	algo->init_fn(&c);
 	algo->update_fn(&c, hdr, *hdrlen);
 	algo->update_fn(&c, buf, len);
-	algo->final_fn(oid->hash, &c);
+	algo->final_oid_fn(oid, &c);
 }
 
 /*
@@ -1902,7 +1968,7 @@ static int write_loose_object(const struct object_id *oid, char *hdr,
 	if (ret != Z_OK)
 		die(_("deflateEnd on object %s failed (%d)"), oid_to_hex(oid),
 		    ret);
-	the_hash_algo->final_fn(parano_oid.hash, &c);
+	the_hash_algo->final_oid_fn(&parano_oid, &c);
 	if (!oideq(oid, &parano_oid))
 		die(_("confused by unstable object source data for %s"),
 		    oid_to_hex(oid));
@@ -2304,10 +2370,8 @@ int for_each_file_in_obj_subdir(unsigned int subdir_nr,
 	strbuf_addch(path, '/');
 	baselen = path->len;
 
-	while ((de = readdir(dir))) {
+	while ((de = readdir_skip_dot_and_dotdot(dir))) {
 		size_t namelen;
-		if (is_dot_or_dotdot(de->d_name))
-			continue;
 
 		namelen = strlen(de->d_name);
 		strbuf_setlen(path, baselen);
@@ -2315,6 +2379,7 @@ int for_each_file_in_obj_subdir(unsigned int subdir_nr,
 		if (namelen == the_hash_algo->hexsz - 2 &&
 		    !hex_to_bytes(oid.hash + 1, de->d_name,
 				  the_hash_algo->rawsz - 1)) {
+			oid_set_algo(&oid, the_hash_algo);
 			if (obj_cb) {
 				r = obj_cb(&oid, path->buf, data);
 				if (r)
@@ -2398,39 +2463,45 @@ int for_each_loose_object(each_loose_object_fn cb, void *data,
 static int append_loose_object(const struct object_id *oid, const char *path,
 			       void *data)
 {
-	oid_array_append(data, oid);
+	oidtree_insert(data, oid);
 	return 0;
 }
 
-struct oid_array *odb_loose_cache(struct object_directory *odb,
+struct oidtree *odb_loose_cache(struct object_directory *odb,
 				  const struct object_id *oid)
 {
 	int subdir_nr = oid->hash[0];
 	struct strbuf buf = STRBUF_INIT;
+	size_t word_bits = bitsizeof(odb->loose_objects_subdir_seen[0]);
+	size_t word_index = subdir_nr / word_bits;
+	size_t mask = 1 << (subdir_nr % word_bits);
+	uint32_t *bitmap;
 
 	if (subdir_nr < 0 ||
-	    subdir_nr >= ARRAY_SIZE(odb->loose_objects_subdir_seen))
+	    subdir_nr >= bitsizeof(odb->loose_objects_subdir_seen))
 		BUG("subdir_nr out of range");
 
-	if (odb->loose_objects_subdir_seen[subdir_nr])
-		return &odb->loose_objects_cache[subdir_nr];
-
+	bitmap = &odb->loose_objects_subdir_seen[word_index];
+	if (*bitmap & mask)
+		return odb->loose_objects_cache;
+	if (!odb->loose_objects_cache) {
+		ALLOC_ARRAY(odb->loose_objects_cache, 1);
+		oidtree_init(odb->loose_objects_cache);
+	}
 	strbuf_addstr(&buf, odb->path);
 	for_each_file_in_obj_subdir(subdir_nr, &buf,
 				    append_loose_object,
 				    NULL, NULL,
-				    &odb->loose_objects_cache[subdir_nr]);
-	odb->loose_objects_subdir_seen[subdir_nr] = 1;
+				    odb->loose_objects_cache);
+	*bitmap |= mask;
 	strbuf_release(&buf);
-	return &odb->loose_objects_cache[subdir_nr];
+	return odb->loose_objects_cache;
 }
 
 void odb_clear_loose_cache(struct object_directory *odb)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(odb->loose_objects_cache); i++)
-		oid_array_clear(&odb->loose_objects_cache[i]);
+	oidtree_clear(odb->loose_objects_cache);
+	FREE_AND_NULL(odb->loose_objects_cache);
 	memset(&odb->loose_objects_subdir_seen, 0,
 	       sizeof(odb->loose_objects_subdir_seen));
 }
@@ -2483,7 +2554,7 @@ static int check_stream_oid(git_zstream *stream,
 		return -1;
 	}
 
-	the_hash_algo->final_fn(real_oid.hash, &c);
+	the_hash_algo->final_oid_fn(&real_oid, &c);
 	if (!oideq(expected_oid, &real_oid)) {
 		error(_("hash mismatch for %s (expected %s)"), path,
 		      oid_to_hex(expected_oid));

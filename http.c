@@ -1635,9 +1635,18 @@ static int handle_curl_result(struct slot_results *results)
 
 	if (results->curl_result == CURLE_OK) {
 		credential_approve(&http_auth);
-		if (proxy_auth.password)
-			credential_approve(&proxy_auth);
+		credential_approve(&proxy_auth);
+		credential_approve(&cert_auth);
 		return HTTP_OK;
+	} else if (results->curl_result == CURLE_SSL_CERTPROBLEM) {
+		/*
+		 * We can't tell from here whether it's a bad path, bad
+		 * certificate, bad password, or something else wrong
+		 * with the certificate.  So we reject the credential to
+		 * avoid caching or saving a bad password.
+		 */
+		credential_reject(&cert_auth);
+		return HTTP_NOAUTH;
 	} else if (missing_target(results))
 		return HTTP_MISSING_TARGET;
 	else if (results->http_code == 401) {
@@ -2324,7 +2333,7 @@ struct http_pack_request *new_direct_http_pack_request(
 	off_t prev_posn = 0;
 	struct http_pack_request *preq;
 
-	preq = xcalloc(1, sizeof(*preq));
+	CALLOC_ARRAY(preq, 1);
 	strbuf_init(&preq->tmpfile, 0);
 
 	preq->url = url;
@@ -2419,7 +2428,7 @@ struct http_object_request *new_http_object_request(const char *base_url,
 	off_t prev_posn = 0;
 	struct http_object_request *freq;
 
-	freq = xcalloc(1, sizeof(*freq));
+	CALLOC_ARRAY(freq, 1);
 	strbuf_init(&freq->tmpfile, 0);
 	oidcpy(&freq->oid, oid);
 	freq->localfile = -1;
@@ -2566,7 +2575,7 @@ int finish_http_object_request(struct http_object_request *freq)
 	}
 
 	git_inflate_end(&freq->stream);
-	the_hash_algo->final_fn(freq->real_oid.hash, &freq->c);
+	the_hash_algo->final_oid_fn(&freq->real_oid, &freq->c);
 	if (freq->zret != Z_STREAM_END) {
 		unlink_or_warn(freq->tmpfile.buf);
 		return -1;

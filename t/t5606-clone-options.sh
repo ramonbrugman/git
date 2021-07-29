@@ -11,7 +11,8 @@ test_expect_success 'setup' '
 	mkdir parent &&
 	(cd parent && git init &&
 	 echo one >file && git add file &&
-	 git commit -m one)
+	 git commit -m one) &&
+	git clone --depth=1 --no-local parent shallow-repo
 
 '
 
@@ -43,6 +44,30 @@ test_expect_success 'disallows --bare with --separate-git-dir' '
 	test_debug "cat err" &&
 	test_i18ngrep -e "--bare and --separate-git-dir are incompatible" err
 
+'
+
+test_expect_success 'reject cloning shallow repository' '
+	test_when_finished "rm -rf repo" &&
+	test_must_fail git clone --reject-shallow shallow-repo out 2>err &&
+	test_i18ngrep -e "source repository is shallow, reject to clone." err &&
+
+	git clone --no-reject-shallow shallow-repo repo
+'
+
+test_expect_success 'reject cloning non-local shallow repository' '
+	test_when_finished "rm -rf repo" &&
+	test_must_fail git clone --reject-shallow --no-local shallow-repo out 2>err &&
+	test_i18ngrep -e "source repository is shallow, reject to clone." err &&
+
+	git clone --no-reject-shallow --no-local shallow-repo repo
+'
+
+test_expect_success 'succeed cloning normal repository' '
+	test_when_finished "rm -rf chilad1 child2 child3 child4 " &&
+	git clone --reject-shallow parent child1 &&
+	git clone --reject-shallow --no-local parent child2 &&
+	git clone --no-reject-shallow parent child3 &&
+	git clone --no-reject-shallow --no-local parent child4
 '
 
 test_expect_success 'uses "origin" for default remote name' '
@@ -104,12 +129,20 @@ test_expect_success 'redirected clone -v does show progress' '
 
 '
 
+test_expect_success 'clone does not segfault with --bare and core.bare=false' '
+	test_config_global core.bare false &&
+	git clone --bare parent clone-bare &&
+	echo true >expect &&
+	git -C clone-bare rev-parse --is-bare-repository >actual &&
+	test_cmp expect actual
+'
+
 test_expect_success 'chooses correct default initial branch name' '
 	GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME= \
 	git -c init.defaultBranch=foo init --bare empty &&
 	test_config -C empty lsrefs.unborn advertise &&
 	GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME= \
-	git -c init.defaultBranch=up clone empty whats-up &&
+	git -c init.defaultBranch=up -c protocol.version=2 clone empty whats-up &&
 	test refs/heads/foo = $(git -C whats-up symbolic-ref HEAD) &&
 	test refs/heads/foo = $(git -C whats-up config branch.foo.merge)
 '

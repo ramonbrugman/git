@@ -53,7 +53,7 @@ static struct worktree *get_main_worktree(void)
 	strbuf_add_real_path(&worktree_path, get_git_common_dir());
 	strbuf_strip_suffix(&worktree_path, "/.git");
 
-	worktree = xcalloc(1, sizeof(*worktree));
+	CALLOC_ARRAY(worktree, 1);
 	worktree->path = strbuf_detach(&worktree_path, NULL);
 	/*
 	 * NEEDSWORK: If this function is called from a secondary worktree and
@@ -84,7 +84,7 @@ static struct worktree *get_linked_worktree(const char *id)
 	strbuf_rtrim(&worktree_path);
 	strbuf_strip_suffix(&worktree_path, "/.git");
 
-	worktree = xcalloc(1, sizeof(*worktree));
+	CALLOC_ARRAY(worktree, 1);
 	worktree->path = strbuf_detach(&worktree_path, NULL);
 	worktree->id = xstrdup(id);
 	add_head_info(worktree);
@@ -128,10 +128,8 @@ struct worktree **get_worktrees(void)
 	dir = opendir(path.buf);
 	strbuf_release(&path);
 	if (dir) {
-		while ((d = readdir(dir)) != NULL) {
+		while ((d = readdir_skip_dot_and_dotdot(dir)) != NULL) {
 			struct worktree *linked = NULL;
-			if (is_dot_or_dotdot(d->d_name))
-				continue;
 
 			if ((linked = get_linked_worktree(d->d_name))) {
 				ALLOC_GROW(list, counter + 1, alloc);
@@ -267,6 +265,7 @@ const char *worktree_prune_reason(struct worktree *wt, timestamp_t expire)
 }
 
 /* convenient wrapper to deal with NULL strbuf */
+__attribute__((format (printf, 2, 3)))
 static void strbuf_addf_gently(struct strbuf *buf, const char *fmt, ...)
 {
 	va_list params;
@@ -486,13 +485,9 @@ int submodule_uses_worktrees(const char *path)
 	if (!dir)
 		return 0;
 
-	while ((d = readdir(dir)) != NULL) {
-		if (is_dot_or_dotdot(d->d_name))
-			continue;
-
+	d = readdir_skip_dot_and_dotdot(dir);
+	if (d != NULL)
 		ret = 1;
-		break;
-	}
 	closedir(dir);
 	return ret;
 }

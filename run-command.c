@@ -11,9 +11,8 @@
 
 void child_process_init(struct child_process *child)
 {
-	memset(child, 0, sizeof(*child));
-	strvec_init(&child->args);
-	strvec_init(&child->env_array);
+	struct child_process blank = CHILD_PROCESS_INIT;
+	memcpy(child, &blank, sizeof(*child));
 }
 
 void child_process_clear(struct child_process *child)
@@ -993,6 +992,7 @@ int finish_command(struct child_process *cmd)
 	int ret = wait_or_whine(cmd->pid, cmd->argv[0], 0);
 	trace2_child_exit(cmd, ret);
 	child_process_clear(cmd);
+	invalidate_lstat_cache();
 	return ret;
 }
 
@@ -1294,13 +1294,19 @@ error:
 int finish_async(struct async *async)
 {
 #ifdef NO_PTHREADS
-	return wait_or_whine(async->pid, "child process", 0);
+	int ret = wait_or_whine(async->pid, "child process", 0);
+
+	invalidate_lstat_cache();
+
+	return ret;
 #else
 	void *ret = (void *)(intptr_t)(-1);
 
 	if (pthread_join(async->tid, &ret))
 		error("pthread_join failed");
+	invalidate_lstat_cache();
 	return (int)(intptr_t)ret;
+
 #endif
 }
 
@@ -1631,8 +1637,8 @@ static void pp_init(struct parallel_processes *pp,
 	pp->nr_processes = 0;
 	pp->output_owner = 0;
 	pp->shutdown = 0;
-	pp->children = xcalloc(n, sizeof(*pp->children));
-	pp->pfd = xcalloc(n, sizeof(*pp->pfd));
+	CALLOC_ARRAY(pp->children, n);
+	CALLOC_ARRAY(pp->pfd, n);
 	strbuf_init(&pp->buffered_output, 0);
 
 	for (i = 0; i < n; i++) {
@@ -1884,4 +1890,16 @@ int run_auto_maintenance(int quiet)
 	strvec_push(&maint.args, quiet ? "--quiet" : "--no-quiet");
 
 	return run_command(&maint);
+}
+
+void prepare_other_repo_env(struct strvec *env_array, const char *new_git_dir)
+{
+	const char * const *var;
+
+	for (var = local_repo_env; *var; var++) {
+		if (strcmp(*var, CONFIG_DATA_ENVIRONMENT) &&
+		    strcmp(*var, CONFIG_COUNT_ENVIRONMENT))
+			strvec_push(env_array, *var);
+	}
+	strvec_pushf(env_array, "%s=%s", GIT_DIR_ENVIRONMENT, new_git_dir);
 }

@@ -889,7 +889,7 @@ static int packed_ref_iterator_peel(struct ref_iterator *ref_iterator,
 	} else if ((iter->base.flags & (REF_ISBROKEN | REF_ISSYMREF))) {
 		return -1;
 	} else {
-		return !!peel_object(&iter->oid, peeled);
+		return peel_object(&iter->oid, peeled) ? -1 : 0;
 	}
 }
 
@@ -941,7 +941,7 @@ static struct ref_iterator *packed_ref_iterator_begin(
 	if (start == snapshot->eof)
 		return empty_ref_iterator_begin();
 
-	iter = xcalloc(1, sizeof(*iter));
+	CALLOC_ARRAY(iter, 1);
 	ref_iterator = &iter->base;
 	base_ref_iterator_init(ref_iterator, &packed_ref_iterator_vtable, 1);
 
@@ -1424,8 +1424,8 @@ static int packed_transaction_prepare(struct ref_store *ref_store,
 	 * do so itself.
 	 */
 
-	data = xcalloc(1, sizeof(*data));
-	string_list_init(&data->updates, 0);
+	CALLOC_ARRAY(data, 1);
+	string_list_init_nodup(&data->updates);
 
 	transaction->backend_data = data;
 
